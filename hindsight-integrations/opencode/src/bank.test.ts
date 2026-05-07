@@ -4,11 +4,21 @@ vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
 }));
 
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    userInfo: vi.fn(() => ({ username: "testuser" })),
+  };
+});
+
 import { execFileSync } from "node:child_process";
-import { deriveBankId, ensureBankMission } from "./bank.js";
+import { userInfo } from "node:os";
+import { deriveBankId, deriveUserBankId, deriveProjectBankId, ensureBankMission, ensureBankMissions } from "./bank.js";
 import { makeConfig } from "./test-helpers.js";
 
 const mockExec = vi.mocked(execFileSync);
+const mockUserInfo = vi.mocked(userInfo);
 
 describe("deriveBankId", () => {
   const originalEnv = { ...process.env };
@@ -255,5 +265,223 @@ describe("ensureBankMission", () => {
       reflectMission: "Reflect",
       retainMission: "Extract carefully",
     });
+  });
+
+  it("uses userBankMission and userRetainMission when bankType is user", async () => {
+    const client = { createBank: vi.fn().mockResolvedValue({}) } as any;
+    const missionsSet = new Set<string>();
+    const config = makeConfig({
+      bankMission: "Project mission",
+      retainMission: "Project retain",
+      userBankMission: "User mission",
+      userRetainMission: "User retain",
+    });
+
+    await ensureBankMission(client, "coding::user::mas", config, missionsSet, "user");
+
+    expect(client.createBank).toHaveBeenCalledWith("coding::user::mas", {
+      reflectMission: "User mission",
+      retainMission: "User retain",
+    });
+    expect(missionsSet.has("coding::user::mas")).toBe(true);
+  });
+
+  it("fails hard when bankType is user and client errors", async () => {
+    const client = {
+      createBank: vi.fn().mockRejectedValue(new Error("Network error")),
+    } as any;
+    const missionsSet = new Set<string>();
+    const config = makeConfig({ userBankMission: "User mission" });
+
+    await expect(
+      ensureBankMission(client, "coding::user::mas", config, missionsSet, "user")
+    ).rejects.toThrow("Network error");
+    expect(missionsSet.has("coding::user::mas")).toBe(false);
+  });
+
+  it("does not fail for project bank on client error (backward compat)", async () => {
+    const client = {
+      createBank: vi.fn().mockRejectedValue(new Error("Network error")),
+    } as any;
+    const missionsSet = new Set<string>();
+    const config = makeConfig({ bankMission: "Mission" });
+
+    await expect(
+      ensureBankMission(client, "test-bank", config, missionsSet, "project")
+    ).resolves.not.toThrow();
+  });
+
+  it("skips user bank if userBankMission is empty", async () => {
+    const client = { createBank: vi.fn() } as any;
+    const missionsSet = new Set<string>();
+    const config = makeConfig({ userBankMission: "" });
+
+    await ensureBankMission(client, "coding::user::mas", config, missionsSet, "user");
+
+    expect(client.createBank).not.toHaveBeenCalled();
+  });
+});
+
+describe("deriveUserBankId", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    mockUserInfo.mockReturnValue({ username: "testuser" } as any);
+  });
+
+  it("uses config.userBankId when set", () => {
+    const config = makeConfig({ userBankId: "explicit-user" });
+    expect(deriveUserBankId(config)).toBe("coding::user::explicit-user");
+  });
+
+  it("falls back to HINDSIGHT_USER_ID env var", () => {
+    process.env.HINDSIGHT_USER_ID = "env-user";
+    const config = makeConfig({ userBankId: null });
+    expect(deriveUserBankId(config)).toBe("coding::user::env-user");
+  });
+
+  it("falls back to OS username", () => {
+    delete process.env.HINDSIGHT_USER_ID;
+    mockUserInfo.mockReturnValue({ username: "os-user" } as any);
+    const config = makeConfig({ userBankId: null });
+    expect(deriveUserBankId(config)).toBe("coding::user::os-user");
+  });
+
+  it("applies bankIdPrefix", () => {
+    const config = makeConfig({ userBankId: "mas", bankIdPrefix: "dev" });
+    expect(deriveUserBankId(config)).toBe("dev-coding::user::mas");
+  });
+
+  it("does not apply prefix when bankIdPrefix is empty", () => {
+    const config = makeConfig({ userBankId: "mas", bankIdPrefix: "" });
+    expect(deriveUserBankId(config)).toBe("coding::user::mas");
+  });
+
+  it("prefers config.userBankId over env var", () => {
+    process.env.HINDSIGHT_USER_ID = "env-user";
+    const config = makeConfig({ userBankId: "config-user" });
+    expect(deriveUserBankId(config)).toBe("coding::user::config-user");
+  });
+});
+
+describe("deriveProjectBankId", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExec.mockImplementation(() => {
+      throw new Error("fatal: not a git repository");
+    });
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    mockExec.mockReset();
+  });
+
+  it("uses git project name with coding::project:: prefix", () => {
+    mockExec.mockReturnValueOnce("/home/user/hindsight/.git\n" as never);
+    const config = makeConfig();
+    expect(deriveProjectBankId(config, "/home/user/hindsight")).toBe(
+      "coding::project::hindsight"
+    );
+  });
+
+  it("falls back to directory basename when git unavailable", () => {
+    const config = makeConfig();
+    expect(deriveProjectBankId(config, "/home/user/my-project")).toBe(
+      "coding::project::my-project"
+    );
+  });
+
+  it("uses config.bankId as explicit override", () => {
+    const config = makeConfig({ bankId: "custom-name" });
+    expect(deriveProjectBankId(config, "/home/user/whatever")).toBe(
+      "coding::project::custom-name"
+    );
+  });
+
+  it("does not invoke git when config.bankId is set", () => {
+    const config = makeConfig({ bankId: "explicit" });
+    deriveProjectBankId(config, "/home/user/proj");
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
+  it("applies bankIdPrefix", () => {
+    const config = makeConfig({ bankIdPrefix: "dev" });
+    expect(deriveProjectBankId(config, "/home/user/hindsight")).toBe(
+      "dev-coding::project::hindsight"
+    );
+  });
+
+  it("does not apply prefix when bankIdPrefix is empty", () => {
+    const config = makeConfig({ bankIdPrefix: "" });
+    expect(deriveProjectBankId(config, "/home/user/hindsight")).toBe(
+      "coding::project::hindsight"
+    );
+  });
+
+  it("shares bank across linked worktrees (uses main worktree name)", () => {
+    mockExec
+      .mockReturnValueOnce("/home/user/hindsight/.git\n" as never)
+      .mockReturnValueOnce("/home/user/hindsight/.git\n" as never);
+    const config = makeConfig();
+    const main = deriveProjectBankId(config, "/home/user/hindsight");
+    const linked = deriveProjectBankId(config, "/tmp/worktrees/hindsight-feature");
+    expect(main).toBe("coding::project::hindsight");
+    expect(linked).toBe(main);
+  });
+
+  it("is independent of agentName config", () => {
+    const config1 = makeConfig({ agentName: "opencode" });
+    const config2 = makeConfig({ agentName: "cursor" });
+    expect(deriveProjectBankId(config1, "/home/user/proj")).toBe(
+      deriveProjectBankId(config2, "/home/user/proj")
+    );
+  });
+});
+
+describe("ensureBankMissions", () => {
+  it("ensures both project and user bank missions in parallel", async () => {
+    const client = { createBank: vi.fn().mockResolvedValue({}) } as any;
+    const missionsSet = new Set<string>();
+    const config = makeConfig({
+      bankMission: "Project mission",
+      retainMission: "Project retain",
+      userBankMission: "User mission",
+      userRetainMission: "User retain",
+    });
+
+    await ensureBankMissions(client, "opencode", "coding::user::mas", config, missionsSet);
+
+    expect(client.createBank).toHaveBeenCalledTimes(2);
+    expect(client.createBank).toHaveBeenCalledWith("opencode", {
+      reflectMission: "Project mission",
+      retainMission: "Project retain",
+    });
+    expect(client.createBank).toHaveBeenCalledWith("coding::user::mas", {
+      reflectMission: "User mission",
+      retainMission: "User retain",
+    });
+    expect(missionsSet.has("opencode")).toBe(true);
+    expect(missionsSet.has("coding::user::mas")).toBe(true);
+  });
+
+  it("propagates user bank failure even if project succeeds", async () => {
+    const client = {
+      createBank: vi.fn().mockImplementation((bankId: string) => {
+        if (bankId === "coding::user::mas") return Promise.reject(new Error("User bank failed"));
+        return Promise.resolve({});
+      }),
+    } as any;
+    const missionsSet = new Set<string>();
+    const config = makeConfig({
+      bankMission: "Project mission",
+      userBankMission: "User mission",
+    });
+
+    await expect(
+      ensureBankMissions(client, "opencode", "coding::user::mas", config, missionsSet)
+    ).rejects.toThrow("User bank failed");
   });
 });

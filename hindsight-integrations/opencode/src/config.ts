@@ -46,6 +46,12 @@ export interface HindsightConfig {
   retainMission: string | null;
   agentName: string;
 
+  // Bank — dual-bank
+  dualBankEnabled: boolean;
+  userBankId: string | null;
+  userBankMission: string;
+  userRetainMission: string | null;
+
   // Misc
   debug: boolean;
 }
@@ -87,6 +93,17 @@ const DEFAULTS: HindsightConfig = {
   retainMission: null,
   agentName: "opencode",
 
+  // Bank — dual-bank
+  dualBankEnabled: false,
+  userBankId: null,
+  userBankMission:
+    "Track personal coding preferences, workflow habits, tool configurations, " +
+    "and communication style. Ignore project-specific details.",
+  userRetainMission:
+    "Extract only personal preferences, habits, and user-specific knowledge. " +
+    "Ignore project architecture, codebase conventions, and technical decisions " +
+    "tied to a specific project.",
+
   // Misc
   debug: false,
 };
@@ -106,6 +123,10 @@ const ENV_OVERRIDES: Record<string, [keyof HindsightConfig, "string" | "bool" | 
   HINDSIGHT_RECALL_CONTEXT_TURNS: ["recallContextTurns", "int"],
   HINDSIGHT_DYNAMIC_BANK_ID: ["dynamicBankId", "bool"],
   HINDSIGHT_BANK_MISSION: ["bankMission", "string"],
+  HINDSIGHT_DUAL_BANK: ["dualBankEnabled", "bool"],
+  HINDSIGHT_USER_BANK_ID: ["userBankId", "string"],
+  HINDSIGHT_USER_BANK_MISSION: ["userBankMission", "string"],
+  HINDSIGHT_USER_RETAIN_MISSION: ["userRetainMission", "string"],
   HINDSIGHT_DEBUG: ["debug", "bool"],
 };
 

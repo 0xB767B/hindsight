@@ -27,6 +27,15 @@ export function makeConfig(overrides: Partial<HindsightConfig> = {}): HindsightC
     bankMission: "",
     retainMission: null,
     agentName: "opencode",
+    dualBankEnabled: false,
+    userBankId: null,
+    userBankMission:
+      "Track personal coding preferences, workflow habits, tool configurations, " +
+      "and communication style. Ignore project-specific details.",
+    userRetainMission:
+      "Extract only personal preferences, habits, and user-specific knowledge. " +
+      "Ignore project architecture, codebase conventions, and technical decisions " +
+      "tied to a specific project.",
     debug: false,
     ...overrides,
   };
