@@ -317,4 +317,273 @@ describe("createTools", () => {
     expect(client.recall.mock.calls[0][0]).toBe("fixed-bank");
     expect(client.reflect.mock.calls[0][0]).toBe("fixed-bank");
   });
+
+  describe("dual-bank mode (user bank set)", () => {
+    const dualBankIds = { project: "coding::project::myproj", user: "coding::user::mas" };
+
+    describe("hindsight_retain dual-write", () => {
+      it("writes to both banks in parallel", async () => {
+        const client = {
+          retain: vi.fn().mockResolvedValue({}),
+          recall: vi.fn(),
+          reflect: vi.fn(),
+        } as any;
+        const tools = createTools(client, dualBankIds, makeConfig());
+
+        const result = await tools.hindsight_retain.execute(
+          { content: "User prefers vim" },
+          mockContext
+        );
+
+        expect(client.retain).toHaveBeenCalledTimes(2);
+        expect(client.retain.mock.calls[0][0]).toBe("coding::project::myproj");
+        expect(client.retain.mock.calls[0][1]).toBe("User prefers vim");
+        expect(client.retain.mock.calls[1][0]).toBe("coding::user::mas");
+        expect(client.retain.mock.calls[1][1]).toBe("User prefers vim");
+        expect(result).toBe("Memory stored successfully.");
+      });
+
+      it("passes same options to both banks", async () => {
+        const client = {
+          retain: vi.fn().mockResolvedValue({}),
+          recall: vi.fn(),
+          reflect: vi.fn(),
+        } as any;
+        const config = makeConfig({
+          retainTags: ["coding"],
+          retainMetadata: { source: "opencode" },
+        });
+        const tools = createTools(client, dualBankIds, config);
+
+        await tools.hindsight_retain.execute(
+          { content: "Fact", context: "from chat" },
+          mockContext
+        );
+
+        const projectOpts = client.retain.mock.calls[0][2];
+        const userOpts = client.retain.mock.calls[1][2];
+        expect(projectOpts).toEqual(userOpts);
+        expect(projectOpts.context).toBe("from chat");
+        expect(projectOpts.tags).toEqual(["coding"]);
+        expect(projectOpts.metadata).toEqual({ source: "opencode" });
+      });
+    });
+
+    describe("hindsight_recall merged", () => {
+      it("queries both banks with 60/40 token split", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn().mockResolvedValue({ results: [] }),
+          reflect: vi.fn(),
+        } as any;
+        const config = makeConfig({ recallMaxTokens: 1000 });
+        const tools = createTools(client, dualBankIds, config);
+
+        await tools.hindsight_recall.execute({ query: "test" }, mockContext);
+
+        expect(client.recall).toHaveBeenCalledTimes(2);
+        // Project bank gets 60%
+        expect(client.recall.mock.calls[0][0]).toBe("coding::project::myproj");
+        expect(client.recall.mock.calls[0][2].maxTokens).toBe(600);
+        // User bank gets 40%
+        expect(client.recall.mock.calls[1][0]).toBe("coding::user::mas");
+        expect(client.recall.mock.calls[1][2].maxTokens).toBe(400);
+      });
+
+      it("formats results with labeled sections", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn()
+            .mockResolvedValueOnce({
+              results: [{ text: "Uses hexagonal architecture", type: "world" }],
+            })
+            .mockResolvedValueOnce({
+              results: [{ text: "Prefers functional style", type: "world" }],
+            }),
+          reflect: vi.fn(),
+        } as any;
+        const tools = createTools(client, dualBankIds, makeConfig());
+
+        const result = await tools.hindsight_recall.execute(
+          { query: "coding style" },
+          mockContext
+        );
+
+        expect(result).toContain("## From project context:");
+        expect(result).toContain("Uses hexagonal architecture");
+        expect(result).toContain("## From personal preferences:");
+        expect(result).toContain("Prefers functional style");
+        expect(result).toContain("Found 2 relevant memories");
+      });
+
+      it("shows only project section when user bank returns empty", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn()
+            .mockResolvedValueOnce({
+              results: [{ text: "API uses REST", type: "world" }],
+            })
+            .mockResolvedValueOnce({ results: [] }),
+          reflect: vi.fn(),
+        } as any;
+        const tools = createTools(client, dualBankIds, makeConfig());
+
+        const result = await tools.hindsight_recall.execute({ query: "api" }, mockContext);
+
+        expect(result).toContain("## From project context:");
+        expect(result).toContain("API uses REST");
+        expect(result).not.toContain("## From personal preferences:");
+      });
+
+      it("shows only user section when project bank returns empty", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn()
+            .mockResolvedValueOnce({ results: [] })
+            .mockResolvedValueOnce({
+              results: [{ text: "Likes dark mode", type: "world" }],
+            }),
+          reflect: vi.fn(),
+        } as any;
+        const tools = createTools(client, dualBankIds, makeConfig());
+
+        const result = await tools.hindsight_recall.execute({ query: "prefs" }, mockContext);
+
+        expect(result).not.toContain("## From project context:");
+        expect(result).toContain("## From personal preferences:");
+        expect(result).toContain("Likes dark mode");
+      });
+
+      it("returns no-results message when both banks empty", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn().mockResolvedValue({ results: [] }),
+          reflect: vi.fn(),
+        } as any;
+        const tools = createTools(client, dualBankIds, makeConfig());
+
+        const result = await tools.hindsight_recall.execute({ query: "unknown" }, mockContext);
+
+        expect(result).toBe("No relevant memories found.");
+      });
+    });
+
+    describe("hindsight_reflect with scope", () => {
+      it("routes to project bank by default", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn(),
+          reflect: vi.fn().mockResolvedValue({ text: "Project uses microservices" }),
+        } as any;
+        const tools = createTools(client, dualBankIds, makeConfig());
+
+        const result = await tools.hindsight_reflect.execute(
+          { query: "architecture" },
+          mockContext
+        );
+
+        expect(client.reflect).toHaveBeenCalledWith(
+          "coding::project::myproj",
+          "architecture",
+          expect.any(Object)
+        );
+        expect(result).toBe("Project uses microservices");
+      });
+
+      it("routes to user bank when scope=user", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn(),
+          reflect: vi.fn().mockResolvedValue({ text: "User likes TypeScript" }),
+        } as any;
+        const tools = createTools(client, dualBankIds, makeConfig());
+
+        const result = await tools.hindsight_reflect.execute(
+          { query: "preferences", scope: "user" },
+          mockContext
+        );
+
+        expect(client.reflect).toHaveBeenCalledWith(
+          "coding::user::mas",
+          "preferences",
+          expect.any(Object)
+        );
+        expect(result).toBe("User likes TypeScript");
+      });
+
+      it("falls back to project bank when scope=user but no user bank", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn(),
+          reflect: vi.fn().mockResolvedValue({ text: "answer" }),
+        } as any;
+        const tools = createTools(
+          client,
+          { project: "proj-bank", user: null },
+          makeConfig()
+        );
+
+        await tools.hindsight_reflect.execute(
+          { query: "prefs", scope: "user" },
+          mockContext
+        );
+
+        expect(client.reflect).toHaveBeenCalledWith(
+          "proj-bank",
+          "prefs",
+          expect.any(Object)
+        );
+      });
+    });
+
+    describe("bank mission setup with dual-bank", () => {
+      it("ensures missions for both banks before retain", async () => {
+        const client = {
+          retain: vi.fn().mockResolvedValue({}),
+          recall: vi.fn(),
+          reflect: vi.fn(),
+          createBank: vi.fn().mockResolvedValue({}),
+        } as any;
+        const missionsSet = new Set<string>();
+        const config = makeConfig({
+          bankMission: "Project mission",
+          userBankMission: "User mission",
+        });
+        const tools = createTools(client, dualBankIds, config, missionsSet);
+
+        await tools.hindsight_retain.execute({ content: "fact" }, mockContext);
+
+        expect(client.createBank).toHaveBeenCalledTimes(2);
+        expect(client.createBank).toHaveBeenCalledWith("coding::project::myproj", {
+          reflectMission: "Project mission",
+          retainMission: undefined,
+        });
+        expect(client.createBank).toHaveBeenCalledWith("coding::user::mas", {
+          reflectMission: "User mission",
+          retainMission: expect.any(String),
+        });
+        expect(missionsSet.has("coding::project::myproj")).toBe(true);
+        expect(missionsSet.has("coding::user::mas")).toBe(true);
+      });
+
+      it("ensures missions for both banks before reflect", async () => {
+        const client = {
+          retain: vi.fn(),
+          recall: vi.fn(),
+          reflect: vi.fn().mockResolvedValue({ text: "ok" }),
+          createBank: vi.fn().mockResolvedValue({}),
+        } as any;
+        const missionsSet = new Set<string>();
+        const config = makeConfig({
+          bankMission: "Project mission",
+          userBankMission: "User mission",
+        });
+        const tools = createTools(client, dualBankIds, config, missionsSet);
+
+        await tools.hindsight_reflect.execute({ query: "test" }, mockContext);
+
+        expect(client.createBank).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
 });

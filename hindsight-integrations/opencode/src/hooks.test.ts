@@ -399,3 +399,209 @@ describe("system transform hook", () => {
     expect(output.system.length).toBe(0);
   });
 });
+
+describe("dual-bank mode (user bank set)", () => {
+  const dualBankIds = { project: "coding::project::myproj", user: "coding::user::mas" };
+
+  describe("retainSession dual-write", () => {
+    it("writes to both banks on session.idle", async () => {
+      const client = makeClient();
+      const messages = [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Hello" }] },
+        { info: { role: "assistant" }, parts: [{ type: "text", text: "Hi there" }] },
+      ];
+      const state = makeState();
+      const hooks = createHooks(
+        client,
+        dualBankIds,
+        makeConfig({ retainEveryNTurns: 1 }),
+        state,
+        makeOpencodeClient(messages)
+      );
+
+      await hooks.event({
+        event: { type: "session.idle", properties: { sessionID: "sess-1" } },
+      });
+
+      expect(client.retain).toHaveBeenCalledTimes(2);
+      expect(client.retain.mock.calls[0][0]).toBe("coding::project::myproj");
+      expect(client.retain.mock.calls[1][0]).toBe("coding::user::mas");
+    });
+
+    it("sends same transcript to both banks", async () => {
+      const client = makeClient();
+      const messages = [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Set up CI" }] },
+        { info: { role: "assistant" }, parts: [{ type: "text", text: "Done" }] },
+      ];
+      const hooks = createHooks(
+        client,
+        dualBankIds,
+        makeConfig({ retainEveryNTurns: 1 }),
+        makeState(),
+        makeOpencodeClient(messages)
+      );
+
+      await hooks.event({
+        event: { type: "session.idle", properties: { sessionID: "sess-1" } },
+      });
+
+      const projectTranscript = client.retain.mock.calls[0][1];
+      const userTranscript = client.retain.mock.calls[1][1];
+      expect(projectTranscript).toBe(userTranscript);
+    });
+
+    it("dual-writes during pre-compaction retain", async () => {
+      const client = makeClient();
+      client.recall.mockResolvedValue({ results: [] });
+      const messages = [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Build feature" }] },
+        { info: { role: "assistant" }, parts: [{ type: "text", text: "Working on it" }] },
+      ];
+      const output = { context: [] as string[] };
+      const hooks = createHooks(
+        client,
+        dualBankIds,
+        makeConfig(),
+        makeState(),
+        makeOpencodeClient(messages)
+      );
+
+      await hooks["experimental.session.compacting"]({ sessionID: "sess-1" }, output);
+
+      // retain called twice (dual-write)
+      expect(client.retain).toHaveBeenCalledTimes(2);
+      expect(client.retain.mock.calls[0][0]).toBe("coding::project::myproj");
+      expect(client.retain.mock.calls[1][0]).toBe("coding::user::mas");
+    });
+  });
+
+  describe("recallForContext merged", () => {
+    it("queries both banks and merges into labeled sections (system transform)", async () => {
+      const client = makeClient();
+      client.recall
+        .mockResolvedValueOnce({
+          results: [{ text: "Uses PostgreSQL", type: "world" }],
+        })
+        .mockResolvedValueOnce({
+          results: [{ text: "Prefers dark theme", type: "world" }],
+        });
+      const state = makeState();
+      state.recalledSessions.add("sess-1");
+      const output = { system: [] as string[] };
+      const hooks = createHooks(
+        client,
+        dualBankIds,
+        makeConfig(),
+        state,
+        makeOpencodeClient()
+      );
+
+      await hooks["experimental.chat.system.transform"]({ sessionID: "sess-1", model: {} }, output);
+
+      expect(client.recall).toHaveBeenCalledTimes(2);
+      expect(output.system.length).toBe(1);
+      expect(output.system[0]).toContain("hindsight_memories");
+      expect(output.system[0]).toContain("## From project context:");
+      expect(output.system[0]).toContain("Uses PostgreSQL");
+      expect(output.system[0]).toContain("## From personal preferences:");
+      expect(output.system[0]).toContain("Prefers dark theme");
+    });
+
+    it("applies 60/40 token split", async () => {
+      const client = makeClient();
+      client.recall.mockResolvedValue({ results: [] });
+      const state = makeState();
+      state.recalledSessions.add("sess-1");
+      const output = { system: [] as string[] };
+      const config = makeConfig({ recallMaxTokens: 1000 });
+      const hooks = createHooks(client, dualBankIds, config, state, makeOpencodeClient());
+
+      await hooks["experimental.chat.system.transform"]({ sessionID: "sess-1", model: {} }, output);
+
+      expect(client.recall.mock.calls[0][2].maxTokens).toBe(600);
+      expect(client.recall.mock.calls[1][2].maxTokens).toBe(400);
+    });
+
+    it("shows only project section when user bank returns empty", async () => {
+      const client = makeClient();
+      client.recall
+        .mockResolvedValueOnce({
+          results: [{ text: "REST API pattern", type: "world" }],
+        })
+        .mockResolvedValueOnce({ results: [] });
+      const state = makeState();
+      state.recalledSessions.add("sess-1");
+      const output = { system: [] as string[] };
+      const hooks = createHooks(client, dualBankIds, makeConfig(), state, makeOpencodeClient());
+
+      await hooks["experimental.chat.system.transform"]({ sessionID: "sess-1", model: {} }, output);
+
+      expect(output.system[0]).toContain("## From project context:");
+      expect(output.system[0]).toContain("REST API pattern");
+      expect(output.system[0]).not.toContain("## From personal preferences:");
+    });
+
+    it("merges recall during compaction", async () => {
+      const client = makeClient();
+      client.recall
+        .mockResolvedValueOnce({
+          results: [{ text: "Deployed on AWS", type: "world" }],
+        })
+        .mockResolvedValueOnce({
+          results: [{ text: "Prefers Terraform", type: "world" }],
+        });
+      const messages = [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Deploy" }] },
+        { info: { role: "assistant" }, parts: [{ type: "text", text: "Done" }] },
+      ];
+      const output = { context: [] as string[] };
+      const hooks = createHooks(
+        client,
+        dualBankIds,
+        makeConfig(),
+        makeState(),
+        makeOpencodeClient(messages)
+      );
+
+      await hooks["experimental.session.compacting"]({ sessionID: "sess-1" }, output);
+
+      // recall returns merged context (after retain calls)
+      const recallContext = output.context.find((c) => c.includes("hindsight_memories"));
+      expect(recallContext).toBeDefined();
+      expect(recallContext).toContain("## From project context:");
+      expect(recallContext).toContain("Deployed on AWS");
+      expect(recallContext).toContain("## From personal preferences:");
+      expect(recallContext).toContain("Prefers Terraform");
+    });
+  });
+
+  describe("mission setup with dual-bank", () => {
+    it("ensures missions for both banks on system transform", async () => {
+      const client = makeClient();
+      client.recall.mockResolvedValue({
+        results: [{ text: "memory", type: "world" }],
+      });
+      const state = makeState();
+      state.recalledSessions.add("sess-1");
+      const config = makeConfig({
+        bankMission: "Project mission",
+        userBankMission: "User mission",
+      });
+      const output = { system: [] as string[] };
+      const hooks = createHooks(client, dualBankIds, config, state, makeOpencodeClient());
+
+      await hooks["experimental.chat.system.transform"]({ sessionID: "sess-1", model: {} }, output);
+
+      expect(client.createBank).toHaveBeenCalledTimes(2);
+      expect(client.createBank).toHaveBeenCalledWith("coding::project::myproj", {
+        reflectMission: "Project mission",
+        retainMission: undefined,
+      });
+      expect(client.createBank).toHaveBeenCalledWith("coding::user::mas", {
+        reflectMission: "User mission",
+        retainMission: expect.any(String),
+      });
+    });
+  });
+});
