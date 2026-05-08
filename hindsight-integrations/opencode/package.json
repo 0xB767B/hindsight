@@ -34,7 +34,8 @@
   ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsc --watch",
+    "dev": "tsc --watch --noEmit",
+    "dev:build": "tsup --watch",
     "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest",
