@@ -125,6 +125,12 @@ export function createHooks(
         const projectResults = projectResponse.results || [];
         const userResults = userResponse.results || [];
 
+        debugLog(
+          config,
+          `recallForContext: dual query — project: ${projectResults.length} results (${projectTokens} tokens), ` +
+            `user: ${userResults.length} results (${userTokens} tokens)`
+        );
+
         if (!projectResults.length && !userResults.length) {
           return { context: null, ok: true };
         }
@@ -157,6 +163,8 @@ export function createHooks(
 
       const results = response.results || [];
       if (!results.length) return { context: null, ok: true };
+
+      debugLog(config, `recallForContext: ${results.length} results from [${bankIds.project}]`);
 
       const formatted = formatMemories(results);
       const context =
@@ -255,8 +263,17 @@ export function createHooks(
         hindsightClient.retain(bankIds.project, transcript, retainOpts),
         hindsightClient.retain(bankIds.user, transcript, retainOpts),
       ]);
+      debugLog(
+        config,
+        `retainSession: dual-write to [${bankIds.project}] and [${bankIds.user}] ` +
+          `(${transcript.length} chars, documentId=${documentId})`
+      );
     } else {
       await hindsightClient.retain(bankIds.project, transcript, retainOpts);
+      debugLog(
+        config,
+        `retainSession: wrote to [${bankIds.project}] (${transcript.length} chars, documentId=${documentId})`
+      );
     }
   }
 
@@ -282,7 +299,11 @@ export function createHooks(
     try {
       await retainSession(sessionId, messages);
       state.lastRetainedTurn.set(sessionId, userTurns);
-      debugLog(config, `Auto-retained ${messages.length} messages for session ${sessionId}`);
+      debugLog(
+        config,
+        `Auto-retained ${messages.length} messages for session ${sessionId}` +
+          (bankIds.user ? " (dual-write)" : "")
+      );
     } catch (e) {
       debugLog(config, "Auto-retain failed:", e);
     }
@@ -327,7 +348,10 @@ export function createHooks(
           // Reset turn tracking — after compaction the message list shrinks,
           // so the old lastRetainedTurn value would block future idle retains.
           state.lastRetainedTurn.delete(input.sessionID);
-          debugLog(config, "Pre-compaction retain completed");
+          debugLog(
+            config,
+            `Pre-compaction retain completed` + (bankIds.user ? " (dual-write)" : "")
+          );
         } catch (e) {
           debugLog(config, "Pre-compaction retain failed:", e);
         }

@@ -9,6 +9,7 @@ import { tool } from "@opencode-ai/plugin/tool";
 import type { ToolDefinition } from "@opencode-ai/plugin/tool";
 import type { HindsightClient } from "@vectorize-io/hindsight-client";
 import type { HindsightConfig, BankIds } from "./config.js";
+import { debugLog } from "./config.js";
 import { formatMemories, formatCurrentTime } from "./content.js";
 import { ensureBankMission, ensureBankMissions } from "./bank.js";
 
@@ -65,8 +66,16 @@ export function createTools(
           client.retain(bankIds.project, args.content, retainOpts),
           client.retain(bankIds.user, args.content, retainOpts),
         ]);
+        debugLog(
+          config,
+          `retain: dual-write to [${bankIds.project}] and [${bankIds.user}] (${args.content.length} chars)`
+        );
       } else {
         await client.retain(bankIds.project, args.content, retainOpts);
+        debugLog(
+          config,
+          `retain: wrote to [${bankIds.project}] (${args.content.length} chars)`
+        );
       }
 
       return "Memory stored successfully.";
@@ -110,6 +119,12 @@ export function createTools(
         const projectResults = projectResponse.results || [];
         const userResults = userResponse.results || [];
 
+        debugLog(
+          config,
+          `recall: dual query — project: ${projectResults.length} results (${projectTokens} tokens), ` +
+            `user: ${userResults.length} results (${userTokens} tokens)`
+        );
+
         if (!projectResults.length && !userResults.length) {
           return "No relevant memories found.";
         }
@@ -140,6 +155,8 @@ export function createTools(
 
       const results = response.results || [];
       if (!results.length) return "No relevant memories found.";
+
+      debugLog(config, `recall: ${results.length} results from [${bankIds.project}]`);
 
       const formatted = formatMemories(results);
       return `Found ${results.length} relevant memories (as of ${formatCurrentTime()} UTC):\n\n${formatted}`;
@@ -188,6 +205,12 @@ export function createTools(
         context: args.context,
         budget: config.recallBudget as "low" | "mid" | "high",
       });
+
+      debugLog(
+        config,
+        `reflect: scope=${scope}, bank=[${targetBankId}], ` +
+          `result=${response.text ? response.text.length + " chars" : "empty"}`
+      );
 
       return response.text || "No relevant information found to reflect on.";
     },
