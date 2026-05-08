@@ -16,7 +16,7 @@ const mockContext = {
 describe("createTools", () => {
   it("creates all three tools", () => {
     const client = { retain: vi.fn(), recall: vi.fn(), reflect: vi.fn() } as any;
-    const tools = createTools(client, "test-bank", makeConfig());
+    const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
     expect(tools.hindsight_retain).toBeDefined();
     expect(tools.hindsight_recall).toBeDefined();
@@ -25,7 +25,7 @@ describe("createTools", () => {
 
   it("all tools have description and execute", () => {
     const client = { retain: vi.fn(), recall: vi.fn(), reflect: vi.fn() } as any;
-    const tools = createTools(client, "test-bank", makeConfig());
+    const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
     for (const tool of Object.values(tools)) {
       expect(tool.description).toBeTruthy();
@@ -40,7 +40,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn(),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       const result = await tools.hindsight_retain.execute(
         { content: "User likes TypeScript" },
@@ -61,7 +61,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn(),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       await tools.hindsight_retain.execute(
         { content: "Fact", context: "from conversation" },
@@ -85,7 +85,7 @@ describe("createTools", () => {
         retainTags: ["coding"],
         retainMetadata: { source: "opencode" },
       });
-      const tools = createTools(client, "test-bank", config);
+      const tools = createTools(client, { project: "test-bank", user: null }, config);
 
       await tools.hindsight_retain.execute({ content: "Fact" }, mockContext);
 
@@ -106,7 +106,7 @@ describe("createTools", () => {
         }),
         reflect: vi.fn(),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       const result = await tools.hindsight_recall.execute(
         { query: "user preferences" },
@@ -128,7 +128,7 @@ describe("createTools", () => {
         recall: vi.fn().mockResolvedValue({ results: [] }),
         reflect: vi.fn(),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       const result = await tools.hindsight_recall.execute({ query: "unknown" }, mockContext);
       expect(result).toBe("No relevant memories found.");
@@ -141,7 +141,7 @@ describe("createTools", () => {
         reflect: vi.fn(),
       } as any;
       const config = makeConfig({ recallBudget: "high", recallMaxTokens: 4096 });
-      const tools = createTools(client, "test-bank", config);
+      const tools = createTools(client, { project: "test-bank", user: null }, config);
 
       await tools.hindsight_recall.execute({ query: "test" }, mockContext);
 
@@ -160,7 +160,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn().mockResolvedValue({ text: "The user is a Python developer." }),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       const result = await tools.hindsight_reflect.execute(
         { query: "What do I know about this user?" },
@@ -180,7 +180,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn().mockResolvedValue({ text: "" }),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       const result = await tools.hindsight_reflect.execute({ query: "something" }, mockContext);
       expect(result).toBe("No relevant information found to reflect on.");
@@ -192,7 +192,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn().mockResolvedValue({ text: "Answer" }),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       await tools.hindsight_reflect.execute(
         { query: "Q", context: "We are building an app" },
@@ -213,7 +213,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn(),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       await expect(
         tools.hindsight_retain.execute({ content: "test" }, mockContext)
@@ -226,7 +226,7 @@ describe("createTools", () => {
         recall: vi.fn().mockRejectedValue(new Error("Timeout")),
         reflect: vi.fn(),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       await expect(tools.hindsight_recall.execute({ query: "test" }, mockContext)).rejects.toThrow(
         "Timeout"
@@ -239,7 +239,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn().mockRejectedValue(new Error("Server error")),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       await expect(tools.hindsight_reflect.execute({ query: "test" }, mockContext)).rejects.toThrow(
         "Server error"
@@ -257,7 +257,7 @@ describe("createTools", () => {
       } as any;
       const missionsSet = new Set<string>();
       const config = makeConfig({ bankMission: "Extract technical decisions" });
-      const tools = createTools(client, "test-bank", config, missionsSet);
+      const tools = createTools(client, { project: "test-bank", user: null }, config, missionsSet);
 
       await tools.hindsight_retain.execute({ content: "fact" }, mockContext);
 
@@ -278,7 +278,7 @@ describe("createTools", () => {
       } as any;
       const missionsSet = new Set<string>();
       const config = makeConfig({ bankMission: "Synthesize project context" });
-      const tools = createTools(client, "test-bank", config, missionsSet);
+      const tools = createTools(client, { project: "test-bank", user: null }, config, missionsSet);
 
       await tools.hindsight_reflect.execute({ query: "summary" }, mockContext);
 
@@ -292,7 +292,7 @@ describe("createTools", () => {
         recall: vi.fn(),
         reflect: vi.fn(),
       } as any;
-      const tools = createTools(client, "test-bank", makeConfig());
+      const tools = createTools(client, { project: "test-bank", user: null }, makeConfig());
 
       await tools.hindsight_retain.execute({ content: "fact" }, mockContext);
 
@@ -307,7 +307,7 @@ describe("createTools", () => {
       recall: vi.fn().mockResolvedValue({ results: [] }),
       reflect: vi.fn().mockResolvedValue({ text: "ok" }),
     } as any;
-    const tools = createTools(client, "fixed-bank", makeConfig());
+    const tools = createTools(client, { project: "fixed-bank", user: null }, makeConfig());
 
     await tools.hindsight_retain.execute({ content: "x" }, mockContext);
     await tools.hindsight_recall.execute({ query: "x" }, mockContext);

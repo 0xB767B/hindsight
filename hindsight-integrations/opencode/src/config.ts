@@ -12,6 +12,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+export interface BankIds {
+  project: string;
+  user: string | null;
+}
+
 export interface HindsightConfig {
   // Recall
   autoRecall: boolean;

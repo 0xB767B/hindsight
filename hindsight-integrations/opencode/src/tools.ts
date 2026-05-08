@@ -8,9 +8,9 @@
 import { tool } from "@opencode-ai/plugin/tool";
 import type { ToolDefinition } from "@opencode-ai/plugin/tool";
 import type { HindsightClient } from "@vectorize-io/hindsight-client";
-import type { HindsightConfig } from "./config.js";
+import type { HindsightConfig, BankIds } from "./config.js";
 import { formatMemories, formatCurrentTime } from "./content.js";
-import { ensureBankMission } from "./bank.js";
+import { ensureBankMission, ensureBankMissions } from "./bank.js";
 
 export interface HindsightTools {
   hindsight_retain: ToolDefinition;
@@ -20,7 +20,7 @@ export interface HindsightTools {
 
 export function createTools(
   client: HindsightClient,
-  bankId: string,
+  bankIds: BankIds,
   config: HindsightConfig,
   missionsSet?: Set<string>
 ): HindsightTools {
@@ -40,13 +40,35 @@ export function createTools(
     },
     async execute(args) {
       if (missionsSet) {
-        await ensureBankMission(client, bankId, config, missionsSet);
+        if (bankIds.user) {
+          await ensureBankMissions(
+            client,
+            bankIds.project,
+            bankIds.user,
+            config,
+            missionsSet
+          );
+        } else {
+          await ensureBankMission(client, bankIds.project, config, missionsSet);
+        }
       }
-      await client.retain(bankId, args.content, {
+
+      const retainOpts = {
         context: args.context || config.retainContext,
         tags: config.retainTags.length ? config.retainTags : undefined,
         metadata: Object.keys(config.retainMetadata).length ? config.retainMetadata : undefined,
-      });
+      };
+
+      if (bankIds.user) {
+        // Dual-write: send to both banks in parallel
+        await Promise.all([
+          client.retain(bankIds.project, args.content, retainOpts),
+          client.retain(bankIds.user, args.content, retainOpts),
+        ]);
+      } else {
+        await client.retain(bankIds.project, args.content, retainOpts);
+      }
+
       return "Memory stored successfully.";
     },
   });
@@ -62,7 +84,53 @@ export function createTools(
         .describe("Natural language search query. Be specific about what you need to know."),
     },
     async execute(args) {
-      const response = await client.recall(bankId, args.query, {
+      if (bankIds.user) {
+        // Dual-bank: query both with token budget split (60% project, 40% user)
+        const projectTokens = Math.floor(config.recallMaxTokens * 0.6);
+        const userTokens = Math.floor(config.recallMaxTokens * 0.4);
+
+        const baseOpts = {
+          budget: config.recallBudget as "low" | "mid" | "high",
+          types: config.recallTypes,
+          tags: config.recallTags.length ? config.recallTags : undefined,
+          tagsMatch: config.recallTags.length ? config.recallTagsMatch : undefined,
+        };
+
+        const [projectResponse, userResponse] = await Promise.all([
+          client.recall(bankIds.project, args.query, {
+            ...baseOpts,
+            maxTokens: projectTokens,
+          }),
+          client.recall(bankIds.user, args.query, {
+            ...baseOpts,
+            maxTokens: userTokens,
+          }),
+        ]);
+
+        const projectResults = projectResponse.results || [];
+        const userResults = userResponse.results || [];
+
+        if (!projectResults.length && !userResults.length) {
+          return "No relevant memories found.";
+        }
+
+        const parts: string[] = [];
+        parts.push(
+          `Found ${projectResults.length + userResults.length} relevant memories (as of ${formatCurrentTime()} UTC):`
+        );
+
+        if (projectResults.length) {
+          parts.push(`\n## From project context:\n\n${formatMemories(projectResults)}`);
+        }
+        if (userResults.length) {
+          parts.push(`\n## From personal preferences:\n\n${formatMemories(userResults)}`);
+        }
+
+        return parts.join("\n");
+      }
+
+      // Single-bank mode
+      const response = await client.recall(bankIds.project, args.query, {
         budget: config.recallBudget as "low" | "mid" | "high",
         maxTokens: config.recallMaxTokens,
         types: config.recallTypes,
@@ -89,12 +157,34 @@ export function createTools(
         .string()
         .optional()
         .describe("Optional additional context to guide the reflection."),
+      scope: tool.schema
+        .string()
+        .optional()
+        .describe(
+          'Which memory bank to reflect on: "project" (default) for codebase-specific ' +
+            'knowledge, or "user" for personal preferences and habits.'
+        ),
     },
     async execute(args) {
+      const scope = (args.scope as "project" | "user") || "project";
+      const targetBankId =
+        scope === "user" && bankIds.user ? bankIds.user : bankIds.project;
+
       if (missionsSet) {
-        await ensureBankMission(client, bankId, config, missionsSet);
+        if (bankIds.user) {
+          await ensureBankMissions(
+            client,
+            bankIds.project,
+            bankIds.user,
+            config,
+            missionsSet
+          );
+        } else {
+          await ensureBankMission(client, bankIds.project, config, missionsSet);
+        }
       }
-      const response = await client.reflect(bankId, args.query, {
+
+      const response = await client.reflect(targetBankId, args.query, {
         context: args.context,
         budget: config.recallBudget as "low" | "mid" | "high",
       });

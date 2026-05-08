@@ -8,7 +8,7 @@
  */
 
 import type { HindsightClient } from "@vectorize-io/hindsight-client";
-import type { HindsightConfig } from "./config.js";
+import type { HindsightConfig, BankIds } from "./config.js";
 import { debugLog } from "./config.js";
 import {
   formatMemories,
@@ -20,7 +20,7 @@ import {
   sliceLastTurnsByUserBoundary,
   type Message,
 } from "./content.js";
-import { ensureBankMission } from "./bank.js";
+import { ensureBankMission, ensureBankMissions } from "./bank.js";
 
 export interface PluginState {
   turnCount: number;
@@ -84,7 +84,7 @@ export interface HindsightHooks {
 
 export function createHooks(
   hindsightClient: HindsightClient,
-  bankId: string,
+  bankIds: BankIds,
   config: HindsightConfig,
   state: PluginState,
   opencodeClient: OpencodeClient
@@ -99,7 +99,55 @@ export function createHooks(
   /** Recall memories and format as context string */
   async function recallForContext(query: string): Promise<RecallOutcome> {
     try {
-      const response = await hindsightClient.recall(bankId, query, {
+      if (bankIds.user) {
+        // Dual-bank: query both with token budget split (60% project, 40% user)
+        const projectTokens = Math.floor(config.recallMaxTokens * 0.6);
+        const userTokens = Math.floor(config.recallMaxTokens * 0.4);
+
+        const baseOpts = {
+          budget: config.recallBudget as "low" | "mid" | "high",
+          types: config.recallTypes,
+          tags: config.recallTags.length ? config.recallTags : undefined,
+          tagsMatch: config.recallTags.length ? config.recallTagsMatch : undefined,
+        };
+
+        const [projectResponse, userResponse] = await Promise.all([
+          hindsightClient.recall(bankIds.project, query, {
+            ...baseOpts,
+            maxTokens: projectTokens,
+          }),
+          hindsightClient.recall(bankIds.user, query, {
+            ...baseOpts,
+            maxTokens: userTokens,
+          }),
+        ]);
+
+        const projectResults = projectResponse.results || [];
+        const userResults = userResponse.results || [];
+
+        if (!projectResults.length && !userResults.length) {
+          return { context: null, ok: true };
+        }
+
+        const sections: string[] = [];
+        if (projectResults.length) {
+          sections.push(`## From project context:\n\n${formatMemories(projectResults)}`);
+        }
+        if (userResults.length) {
+          sections.push(`## From personal preferences:\n\n${formatMemories(userResults)}`);
+        }
+
+        const context =
+          `<hindsight_memories>\n` +
+          `${config.recallPromptPreamble}\n` +
+          `Current time: ${formatCurrentTime()} UTC\n\n` +
+          `${sections.join("\n\n")}\n` +
+          `</hindsight_memories>`;
+        return { context, ok: true };
+      }
+
+      // Single-bank mode
+      const response = await hindsightClient.recall(bankIds.project, query, {
         budget: config.recallBudget as "low" | "mid" | "high",
         maxTokens: config.recallMaxTokens,
         types: config.recallTypes,
@@ -179,8 +227,19 @@ export function createHooks(
     const { transcript } = prepareRetentionTranscript(targetMessages, true);
     if (!transcript) return;
 
-    await ensureBankMission(hindsightClient, bankId, config, state.missionsSet);
-    await hindsightClient.retain(bankId, transcript, {
+    if (bankIds.user) {
+      await ensureBankMissions(
+        hindsightClient,
+        bankIds.project,
+        bankIds.user,
+        config,
+        state.missionsSet
+      );
+    } else {
+      await ensureBankMission(hindsightClient, bankIds.project, config, state.missionsSet);
+    }
+
+    const retainOpts = {
       documentId,
       context: config.retainContext,
       tags: config.retainTags.length ? config.retainTags : undefined,
@@ -188,7 +247,17 @@ export function createHooks(
         ? { ...config.retainMetadata, session_id: sessionId }
         : { session_id: sessionId },
       async: true,
-    });
+    };
+
+    if (bankIds.user) {
+      // Dual-write: send to both banks in parallel
+      await Promise.all([
+        hindsightClient.retain(bankIds.project, transcript, retainOpts),
+        hindsightClient.retain(bankIds.user, transcript, retainOpts),
+      ]);
+    } else {
+      await hindsightClient.retain(bankIds.project, transcript, retainOpts);
+    }
   }
 
   /** Auto-retain conversation transcript */
@@ -301,7 +370,17 @@ export function createHooks(
       // Only inject on first message of a session (tracked by recalledSessions)
       if (!state.recalledSessions.has(sessionId)) return;
 
-      await ensureBankMission(hindsightClient, bankId, config, state.missionsSet);
+      if (bankIds.user) {
+        await ensureBankMissions(
+          hindsightClient,
+          bankIds.project,
+          bankIds.user,
+          config,
+          state.missionsSet
+        );
+      } else {
+        await ensureBankMission(hindsightClient, bankIds.project, config, state.missionsSet);
+      }
 
       // Use a generic project-context query for session start
       const query = `project context and recent work`;

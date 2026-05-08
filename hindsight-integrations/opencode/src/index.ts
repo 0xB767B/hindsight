@@ -20,7 +20,8 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { HindsightClient } from "@vectorize-io/hindsight-client";
 import { loadConfig } from "./config.js";
-import { deriveBankId } from "./bank.js";
+import type { BankIds } from "./config.js";
+import { deriveBankId, deriveUserBankId, deriveProjectBankId } from "./bank.js";
 import { createTools } from "./tools.js";
 import { createHooks, type PluginState } from "./hooks.js";
 import { debugLog } from "./config.js";
@@ -52,13 +53,25 @@ const HindsightPlugin: Plugin = async (input, options) => {
     apiKey: config.hindsightApiToken || undefined,
   });
 
-  const bankId = deriveBankId(config, input.directory);
-  debugLog(config, `Initialized with bank: ${bankId}, API: ${apiUrl}`);
+  let bankIds: BankIds;
+  if (config.dualBankEnabled) {
+    const projectBankId = deriveProjectBankId(config, input.directory);
+    const userBankId = deriveUserBankId(config);
+    bankIds = { project: projectBankId, user: userBankId };
+    debugLog(
+      config,
+      `Dual-bank mode: project=${projectBankId}, user=${userBankId}, API: ${apiUrl}`
+    );
+  } else {
+    const bankId = deriveBankId(config, input.directory);
+    bankIds = { project: bankId, user: null };
+    debugLog(config, `Initialized with bank: ${bankId}, API: ${apiUrl}`);
+  }
 
-  const tools = createTools(client, bankId, config, state.missionsSet);
+  const tools = createTools(client, bankIds, config, state.missionsSet);
   const hooks = createHooks(
     client,
-    bankId,
+    bankIds,
     config,
     state,
     input.client as unknown as Parameters<typeof createHooks>[4]
@@ -78,7 +91,7 @@ export { HindsightPlugin };
 export default HindsightPlugin;
 
 // Re-export types for consumers
-export type { HindsightConfig } from "./config.js";
+export type { HindsightConfig, BankIds } from "./config.js";
 export type { PluginState } from "./hooks.js";
 export { loadConfig } from "./config.js";
-export { deriveBankId } from "./bank.js";
+export { deriveBankId, deriveUserBankId, deriveProjectBankId } from "./bank.js";

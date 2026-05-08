@@ -34,7 +34,7 @@ describe("createHooks", () => {
   it("returns all required hooks", () => {
     const hooks = createHooks(
       makeClient(),
-      "bank",
+      { project: "bank", user: null },
       makeConfig(),
       makeState(),
       makeOpencodeClient()
@@ -56,7 +56,7 @@ describe("event hook — session.idle", () => {
     const state = makeState();
     const hooks = createHooks(
       client,
-      "bank",
+      { project: "bank", user: null },
       makeConfig({ retainEveryNTurns: 1 }),
       state,
       opencodeClient
@@ -82,7 +82,7 @@ describe("event hook — session.idle", () => {
     ];
     const hooks = createHooks(
       client,
-      "bank",
+      { project: "bank", user: null },
       makeConfig({ autoRetain: false }),
       makeState(),
       makeOpencodeClient(messages)
@@ -109,7 +109,7 @@ describe("event hook — session.idle", () => {
       retainOverlapTurns: 1,
     });
     const state = makeState();
-    const hooks = createHooks(client, "bank", config, state, makeOpencodeClient(messages));
+    const hooks = createHooks(client, { project: "bank", user: null }, config, state, makeOpencodeClient(messages));
 
     await hooks.event({
       event: { type: "session.idle", properties: { sessionID: "sess-1" } },
@@ -129,7 +129,7 @@ describe("event hook — session.idle", () => {
     ];
     const config = makeConfig({ retainEveryNTurns: 5 });
     const state = makeState();
-    const hooks = createHooks(client, "bank", config, state, makeOpencodeClient(messages));
+    const hooks = createHooks(client, { project: "bank", user: null }, config, state, makeOpencodeClient(messages));
 
     await hooks.event({
       event: { type: "session.idle", properties: { sessionID: "sess-1" } },
@@ -148,7 +148,7 @@ describe("event hook — session.idle", () => {
     ];
     const hooks = createHooks(
       client,
-      "bank",
+      { project: "bank", user: null },
       makeConfig({ retainEveryNTurns: 1 }),
       makeState(),
       makeOpencodeClient(messages)
@@ -165,7 +165,7 @@ describe("event hook — session.idle", () => {
 describe("event hook — session.created", () => {
   it("tracks session for recall injection", async () => {
     const state = makeState();
-    const hooks = createHooks(makeClient(), "bank", makeConfig(), state, makeOpencodeClient());
+    const hooks = createHooks(makeClient(), { project: "bank", user: null }, makeConfig(), state, makeOpencodeClient());
 
     await hooks.event({
       event: {
@@ -181,7 +181,7 @@ describe("event hook — session.created", () => {
     const state = makeState();
     const hooks = createHooks(
       makeClient(),
-      "bank",
+      { project: "bank", user: null },
       makeConfig({ autoRecall: false }),
       state,
       makeOpencodeClient()
@@ -211,7 +211,7 @@ describe("compacting hook", () => {
     const output = { context: [] as string[], prompt: undefined };
     const hooks = createHooks(
       client,
-      "bank",
+      { project: "bank", user: null },
       makeConfig(),
       makeState(),
       makeOpencodeClient(messages)
@@ -237,7 +237,7 @@ describe("compacting hook", () => {
     const output = { context: [] as string[] };
     const hooks = createHooks(
       client,
-      "bank",
+      { project: "bank", user: null },
       makeConfig(),
       makeState(),
       makeOpencodeClient(messages)
@@ -260,7 +260,7 @@ describe("compacting hook", () => {
     ];
     const config = makeConfig({ retainMode: "last-turn", retainEveryNTurns: 1 });
     const output = { context: [] as string[] };
-    const hooks = createHooks(client, "bank", config, makeState(), makeOpencodeClient(messages));
+    const hooks = createHooks(client, { project: "bank", user: null }, config, makeState(), makeOpencodeClient(messages));
 
     await hooks["experimental.session.compacting"]({ sessionID: "sess-1" }, output);
 
@@ -279,7 +279,7 @@ describe("compacting hook", () => {
     // Simulate prior retain at turn 10
     state.lastRetainedTurn.set("sess-1", 10);
     const output = { context: [] as string[] };
-    const hooks = createHooks(client, "bank", makeConfig(), state, makeOpencodeClient(messages));
+    const hooks = createHooks(client, { project: "bank", user: null }, makeConfig(), state, makeOpencodeClient(messages));
 
     await hooks["experimental.session.compacting"]({ sessionID: "sess-1" }, output);
 
@@ -294,7 +294,7 @@ describe("compacting hook", () => {
     const output = { context: [] as string[] };
     const hooks = createHooks(
       client,
-      "bank",
+      { project: "bank", user: null },
       makeConfig(),
       makeState(),
       makeOpencodeClient(messages)
@@ -315,7 +315,7 @@ describe("system transform hook", () => {
     const state = makeState();
     state.recalledSessions.add("sess-1");
     const output = { system: [] as string[] };
-    const hooks = createHooks(client, "bank", makeConfig(), state, makeOpencodeClient());
+    const hooks = createHooks(client, { project: "bank", user: null }, makeConfig(), state, makeOpencodeClient());
 
     await hooks["experimental.chat.system.transform"]({ sessionID: "sess-1", model: {} }, output);
 
@@ -329,7 +329,7 @@ describe("system transform hook", () => {
     const client = makeClient();
     const state = makeState();
     const output = { system: [] as string[] };
-    const hooks = createHooks(client, "bank", makeConfig(), state, makeOpencodeClient());
+    const hooks = createHooks(client, { project: "bank", user: null }, makeConfig(), state, makeOpencodeClient());
 
     await hooks["experimental.chat.system.transform"](
       { sessionID: "sess-unknown", model: {} },
@@ -347,7 +347,7 @@ describe("system transform hook", () => {
     const state = makeState();
     state.recalledSessions.add("sess-1");
     const output = { system: [] as string[] };
-    const hooks = createHooks(client, "bank", makeConfig(), state, makeOpencodeClient());
+    const hooks = createHooks(client, { project: "bank", user: null }, makeConfig(), state, makeOpencodeClient());
 
     await hooks["experimental.chat.system.transform"]({ sessionID: "sess-1", model: {} }, output);
 
@@ -366,7 +366,7 @@ describe("system transform hook", () => {
     });
     const state = makeState();
     state.recalledSessions.add("sess-1");
-    const hooks = createHooks(client, "bank", makeConfig(), state, makeOpencodeClient());
+    const hooks = createHooks(client, { project: "bank", user: null }, makeConfig(), state, makeOpencodeClient());
 
     // First attempt — API error, session preserved for retry
     const output1 = { system: [] as string[] };
@@ -388,7 +388,7 @@ describe("system transform hook", () => {
     const output = { system: [] as string[] };
     const hooks = createHooks(
       client,
-      "bank",
+      { project: "bank", user: null },
       makeConfig({ autoRecall: false }),
       state,
       makeOpencodeClient()
