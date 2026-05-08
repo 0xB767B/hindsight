@@ -211,11 +211,28 @@ export HINDSIGHT_DUAL_BANK=true
 
 The following is the authoritative build sequence (differs from the file-by-file grouping above which is organized by logical concern):
 
-1. `src/config.ts` — Add fields + env var mappings
-2. `src/test-helpers.ts` — Add defaults to `makeConfig`
-3. `src/bank.ts` — Add `deriveUserBankId()`, `deriveProjectBankId()`, add `bankType` param to `ensureBankMission`
-4. `src/bank.test.ts` — Tests for user bank derivation, project bank derivation, and mission
-5. `src/index.ts` — Derive both IDs, granularity warning, pass both downstream
-6. `src/tools.ts` — Dual-write retain, merged recall, reflect with `scope`
-7. `src/hooks.ts` — Dual-write `retainSession`, merged `recallForContext`
-8. `src/tools.test.ts` + `src/hooks.test.ts` — Dual-bank test cases + backward compat
+1. ~~`src/config.ts` — Add fields + env var mappings~~ ✓
+2. ~~`src/test-helpers.ts` — Add defaults to `makeConfig`~~ ✓
+3. ~~`src/bank.ts` — Add `deriveUserBankId()`, `deriveProjectBankId()`, add `bankType` param to `ensureBankMission`~~ ✓
+4. ~~`src/bank.test.ts` — Tests for user bank derivation, project bank derivation, and mission~~ ✓
+5. ~~`src/index.ts` — Derive both IDs, pass both downstream via `BankIds` object~~ ✓
+6. ~~`src/tools.ts` — Dual-write retain, merged recall with 60/40 token split, reflect with `scope`~~ ✓
+7. ~~`src/hooks.ts` — Dual-write `retainSession`, merged `recallForContext` with labeled subsections~~ ✓
+8. ~~`src/tools.test.ts` + `src/hooks.test.ts` — Dual-bank test cases + backward compat~~ ✓
+9. `src/tools.ts` + `src/hooks.ts` — Add debug logging for dual-bank operations
+
+### Step 9: Debug Logging for Dual-Bank Operations
+
+`tools.ts` currently has **no** debug logging. `hooks.ts` has logging but doesn't distinguish dual-bank from single-bank operations. Add `debugLog` calls behind `HINDSIGHT_DEBUG=true` for operational visibility:
+
+**`src/tools.ts`** — add logging for:
+- `hindsight_retain`: which banks were written to, content length
+- `hindsight_recall`: which banks were queried, token budget per bank, result counts per bank
+- `hindsight_reflect`: which bank was targeted, scope value
+
+**`src/hooks.ts`** — update existing logging to include dual-bank detail:
+- `retainSession`: which banks, transcript length, documentId
+- `recallForContext` (dual path): result counts per bank, token budgets
+- Update "Auto-retained" and "Pre-compaction retain completed" messages to mention dual-write
+
+All logging is gated behind `config.debug` / `HINDSIGHT_DEBUG=true` — no output in normal operation.
