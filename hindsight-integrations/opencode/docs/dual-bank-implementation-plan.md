@@ -11,15 +11,15 @@ Separating them enables reuse of personal preferences across projects and cleane
 
 ## Design Decisions
 
-| Aspect           | Decision                                                                 | Rationale                                                                                                                      |
-|------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
-| **Retain**       | Dual-write — same transcript sent to both banks                          | Works with existing API; each bank's `retainMission` filters what it extracts; no server changes needed                        |
-| **Recall**       | Both banks queried in parallel, results in labeled sections              | Full context available; LLM can reason about source/scope; no classification step needed                                       |
-| **Reflect**      | `scope` param: `"project"` (default) or `"user"` — no `"both"` option    | Reflect produces a synthesized narrative server-side; merging two is architecturally awkward. Recall handles dual-bank reads.  |
-| **User bank ID** | Domain-namespaced: `coding::user::<id>` from `HINDSIGHT_USER_ID` env var or OS username | Avoids collisions with non-coding apps using hindsight; "coding" domain allows sharing across coding agents while staying isolated from unrelated applications |
-| **Project bank ID** | Domain-namespaced: `coding::project::<name>` derived from git project or directory | Project knowledge is codebase-specific, not agent-specific — all coding agents should share the same project bank for a given repo; mirrors the user bank namespace pattern |
-| **Bank failure** | Fail hard if user bank creation fails                                    | Partial dual-bank state is confusing; better to surface the error immediately                                                  |
-| **Granularity**  | `dynamicBankGranularity` only applies in single-bank (legacy) mode; dual-bank mode uses `deriveProjectBankId` which always uses git/directory-based project name | The agent dimension is irrelevant when banks are shared across agents; the user dimension is handled by the separate user bank |
+| Aspect              | Decision                                                                                                                                                         | Rationale                                                                                                                                                                   |
+|---------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Retain**          | Dual-write — same transcript sent to both banks                                                                                                                  | Works with existing API; each bank's `retainMission` filters what it extracts; no server changes needed                                                                     |
+| **Recall**          | Both banks queried in parallel, results in labeled sections                                                                                                      | Full context available; LLM can reason about source/scope; no classification step needed                                                                                    |
+| **Reflect**         | `scope` param: `"project"` (default) or `"user"` — no `"both"` option                                                                                            | Reflect produces a synthesized narrative server-side; merging two is architecturally awkward. Recall handles dual-bank reads.                                               |
+| **User bank ID**    | Domain-namespaced: `coding::user::<id>` from `HINDSIGHT_USER_ID` env var or OS username                                                                          | Avoids collisions with non-coding apps using hindsight; "coding" domain allows sharing across coding agents while staying isolated from unrelated applications              |
+| **Project bank ID** | Domain-namespaced: `coding::project::<name>` derived from git project or directory                                                                               | Project knowledge is codebase-specific, not agent-specific — all coding agents should share the same project bank for a given repo; mirrors the user bank namespace pattern |
+| **Bank failure**    | Fail hard if user bank creation fails                                                                                                                            | Partial dual-bank state is confusing; better to surface the error immediately                                                                                               |
+| **Granularity**     | `dynamicBankGranularity` only applies in single-bank (legacy) mode; dual-bank mode uses `deriveProjectBankId` which always uses git/directory-based project name | The agent dimension is irrelevant when banks are shared across agents; the user dimension is handled by the separate user bank                                              |
 
 ## New Config Fields
 
@@ -159,12 +159,12 @@ Could be made configurable later via `recallUserBudgetRatio` if needed.
 
 Given directory `/home/mas/work/hindsight`, user `mas`:
 
-| Mode                          | Project bank ID               | User bank ID            |
-|-------------------------------|-------------------------------|-------------------------|
-| Single-bank (default)         | `opencode::hindsight` (via `deriveBankId`, unchanged) | N/A |
-| Dual-bank enabled             | `coding::project::hindsight`  | `coding::user::mas`    |
-| Dual-bank with explicit bankId| `coding::project::my-project` | `coding::user::mas`    |
-| Dual-bank with prefix "dev"  | `dev-coding::project::hindsight` | `dev-coding::user::mas` |
+| Mode                           | Project bank ID                                       | User bank ID            |
+|--------------------------------|-------------------------------------------------------|-------------------------|
+| Single-bank (default)          | `opencode::hindsight` (via `deriveBankId`, unchanged) | N/A                     |
+| Dual-bank enabled              | `coding::project::hindsight`                          | `coding::user::mas`     |
+| Dual-bank with explicit bankId | `coding::project::my-project`                         | `coding::user::mas`     |
+| Dual-bank with prefix "dev"    | `dev-coding::project::hindsight`                      | `dev-coding::user::mas` |
 
 ## Configuration Examples
 
